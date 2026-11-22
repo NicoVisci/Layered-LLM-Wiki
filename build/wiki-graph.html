@@ -1,0 +1,509 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wiki layers</title>
+<style>
+  :root { --bg: #0f1115; --fg: #e6e6e6; --muted: #9aa0a6; --panel: rgba(22, 25, 32, 0.92);
+          --hover: rgba(255, 255, 255, 0.06); --active: rgba(255, 255, 255, 0.12); --rule: #2a2f3a; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--fg);
+               font: 13px/1.45 system-ui, sans-serif; }
+  #view { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; user-select: none;
+          touch-action: none; }
+  #view.panning { cursor: grabbing; }
+  #view text { font-family: system-ui, sans-serif; }
+  #view .clickable { cursor: pointer; }
+  .panel { position: absolute; top: 12px; max-height: calc(100vh - 80px); overflow-y: auto;
+           padding: 10px 12px; border-radius: 8px; background: var(--panel); }
+  #legend { left: 12px; width: 230px; }
+  #edges { right: 12px; width: 280px; }
+  h1 { margin: 0 0 6px; font-size: 14px; }
+  h2 { display: flex; align-items: center; gap: 6px; margin: 12px 0 4px; font-size: 11px; font-weight: 600;
+       text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  .row { display: flex; align-items: center; gap: 8px; margin: 1px 0; padding: 2px 4px; border-radius: 4px; }
+  label.row { cursor: pointer; }
+  label.row:hover, .edge:hover { background: var(--hover); }
+  .sw { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .sw.lane { width: 4px; height: 14px; border-radius: 1px; }
+  .sw.line { height: 2px; width: 14px; border-radius: 0; }
+  .count { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .problems { color: #e15759; }
+  .edge button { flex: 1; min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit;
+                 text-align: left; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edge.selected { background: var(--active); }
+  .edge.off button { color: var(--muted); }
+  input { margin: 0; accent-color: #76b7b2; }
+  .hint { margin-top: 10px; color: var(--muted); font-size: 12px; }
+  #toolbar { position: absolute; bottom: 12px; left: 50%; transform: translateX(-50%); display: flex;
+             align-items: center; gap: 12px; padding: 6px 10px; border-radius: 8px; background: var(--panel);
+             color: var(--muted); font-size: 12px; white-space: nowrap; }
+  #toolbar button { padding: 4px 10px; border: 1px solid #3a3f4a; border-radius: 6px; background: #1c2029;
+                    color: var(--fg); font: inherit; cursor: pointer; }
+  #toolbar button:hover { background: #262b36; }
+  @media (max-width: 900px) { #toolbar .keys { display: none; } }
+</style>
+</head>
+<body>
+<svg id="view" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet"></svg>
+<div id="legend" class="panel"></div>
+<div id="edges" class="panel"></div>
+<div id="toolbar">
+  <button id="home" title="Show the full wiki again (key H)">Reset view</button>
+  <span class="keys">Drag: move · Scroll: zoom · Esc: clear selection</span>
+</div>
+<script>
+const DATA = {"nodes": [{"id": "actors/shopper", "title": "Shopper", "kind": "persona", "module": "shared", "status": "current", "layer": 1}, {"id": "actors/store-manager", "title": "Store manager", "kind": "persona", "module": "shared", "status": "current", "layer": 1}, {"id": "adapters/order-controller", "title": "OrderController", "kind": "endpoint", "module": "sales", "status": "current", "layer": 3}, {"id": "adapters/postgres-order-repository", "title": "PostgresOrderRepository", "kind": "adapter", "module": "sales", "status": "current", "layer": 3}, {"id": "adapters/postgres-product-catalog", "title": "PostgresProductCatalog", "kind": "adapter", "module": "sales", "status": "current", "layer": 3}, {"id": "adapters/stripe-payment-gateway", "title": "StripePaymentGateway", "kind": "adapter", "module": "sales", "status": "current", "layer": 3}, {"id": "application/order-repository", "title": "OrderRepository", "kind": "port", "module": "sales", "status": "current", "layer": 2}, {"id": "application/pay-for-an-order", "title": "Pay for an order", "kind": "use-case", "module": "sales", "status": "current", "layer": 2}, {"id": "application/payment-gateway", "title": "PaymentGateway", "kind": "port", "module": "sales", "status": "current", "layer": 2}, {"id": "application/place-an-order", "title": "Place an order", "kind": "use-case", "module": "sales", "status": "current", "layer": 2}, {"id": "application/product-catalog", "title": "ProductCatalog", "kind": "port", "module": "sales", "status": "current", "layer": 2}, {"id": "application/restock-a-product", "title": "Restock a product", "kind": "use-case", "module": "sales", "status": "current", "layer": 2}, {"id": "domain/an-order-is-paid-once", "title": "An order is paid once", "kind": "rule", "module": "shared", "status": "current", "layer": 0}, {"id": "domain/order", "title": "Order", "kind": "entity", "module": "shared", "status": "current", "layer": 0}, {"id": "domain/payment", "title": "Payment", "kind": "entity", "module": "shared", "status": "current", "layer": 0}, {"id": "domain/product", "title": "Product", "kind": "entity", "module": "shared", "status": "current", "layer": 0}, {"id": "domain/stock-never-goes-below-zero", "title": "Stock never goes below zero", "kind": "rule", "module": "shared", "status": "current", "layer": 0}, {"id": "drivers/postgresql", "title": "PostgreSQL", "kind": "driver", "module": "sales", "status": "current", "layer": 4}, {"id": "drivers/spring-web", "title": "Spring Web", "kind": "driver", "module": "sales", "status": "current", "layer": 4}, {"id": "drivers/stripe", "title": "Stripe", "kind": "driver", "module": "sales", "status": "current", "layer": 4}], "edges": [{"id": "decisions/ADR-001-stripe-as-the-payment-provider", "title": "ADR-001: Stripe as the payment provider", "kind": "decision", "module": "sales", "status": "current", "memberIds": ["application/payment-gateway", "application/pay-for-an-order", "adapters/stripe-payment-gateway", "drivers/stripe"]}, {"id": "decisions/ADR-002-postgresql-as-the-store", "title": "ADR-002: PostgreSQL as the store", "kind": "decision", "module": "sales", "status": "current", "memberIds": ["application/order-repository", "application/product-catalog", "adapters/postgres-order-repository", "adapters/postgres-product-catalog", "drivers/postgresql"]}, {"id": "decisions/ADR-003-http-endpoint-for-orders", "title": "ADR-003: HTTP endpoint for orders", "kind": "decision", "module": "sales", "status": "current", "memberIds": ["application/place-an-order", "application/pay-for-an-order", "adapters/order-controller", "drivers/spring-web"]}, {"id": "requirements/a-shopper-orders-only-products-in-stock", "title": "A shopper orders only products in stock", "kind": "requirement", "module": "sales", "status": "current", "memberIds": ["actors/shopper", "domain/order", "domain/product", "domain/stock-never-goes-below-zero", "application/place-an-order"]}, {"id": "requirements/a-store-manager-restocks-a-product", "title": "A store manager restocks a product", "kind": "requirement", "module": "sales", "status": "current", "memberIds": ["actors/store-manager", "domain/product", "domain/stock-never-goes-below-zero", "application/restock-a-product"]}, {"id": "requirements/an-order-is-paid-exactly-once", "title": "An order is paid exactly once", "kind": "requirement", "module": "sales", "status": "current", "memberIds": ["actors/shopper", "domain/order", "domain/payment", "domain/an-order-is-paid-once", "application/pay-for-an-order"]}, {"id": "requirements/payment-provider-is-not-available", "title": "Payment provider is not available", "kind": "scenario", "module": "sales", "status": "current", "memberIds": ["actors/shopper", "domain/order", "domain/payment", "application/pay-for-an-order"]}], "links": [{"source": "actors/shopper", "target": "domain/product", "violation": false}, {"source": "actors/shopper", "target": "domain/order", "violation": false}, {"source": "actors/store-manager", "target": "domain/product", "violation": false}, {"source": "adapters/order-controller", "target": "application/place-an-order", "violation": false}, {"source": "adapters/order-controller", "target": "application/pay-for-an-order", "violation": false}, {"source": "adapters/postgres-order-repository", "target": "application/order-repository", "violation": false}, {"source": "adapters/postgres-product-catalog", "target": "application/product-catalog", "violation": false}, {"source": "adapters/stripe-payment-gateway", "target": "application/payment-gateway", "violation": false}, {"source": "application/order-repository", "target": "domain/order", "violation": false}, {"source": "application/pay-for-an-order", "target": "domain/order", "violation": false}, {"source": "application/pay-for-an-order", "target": "domain/payment", "violation": false}, {"source": "application/pay-for-an-order", "target": "application/payment-gateway", "violation": false}, {"source": "application/pay-for-an-order", "target": "application/order-repository", "violation": false}, {"source": "application/payment-gateway", "target": "domain/payment", "violation": false}, {"source": "application/place-an-order", "target": "domain/product", "violation": false}, {"source": "application/place-an-order", "target": "application/product-catalog", "violation": false}, {"source": "application/place-an-order", "target": "domain/order", "violation": false}, {"source": "application/place-an-order", "target": "application/order-repository", "violation": false}, {"source": "application/product-catalog", "target": "domain/product", "violation": false}, {"source": "application/restock-a-product", "target": "domain/product", "violation": false}, {"source": "application/restock-a-product", "target": "application/product-catalog", "violation": false}, {"source": "domain/an-order-is-paid-once", "target": "domain/order", "violation": false}, {"source": "domain/an-order-is-paid-once", "target": "domain/payment", "violation": false}, {"source": "domain/order", "target": "domain/product", "violation": false}, {"source": "domain/payment", "target": "domain/order", "violation": false}, {"source": "domain/stock-never-goes-below-zero", "target": "domain/product", "violation": false}, {"source": "domain/stock-never-goes-below-zero", "target": "domain/order", "violation": false}, {"source": "drivers/postgresql", "target": "adapters/postgres-product-catalog", "violation": false}, {"source": "drivers/postgresql", "target": "adapters/postgres-order-repository", "violation": false}, {"source": "drivers/spring-web", "target": "adapters/order-controller", "violation": false}, {"source": "drivers/stripe", "target": "adapters/stripe-payment-gateway", "violation": false}], "problems": []};
+
+// Layers are horizontal lanes, Domain at the bottom. Edges are vertical lanes.
+const LAYERS = [
+  { name: 'Domain', color: '#4e79a7' },
+  { name: 'Actors', color: '#59a14f' },
+  { name: 'Application', color: '#76b7b2' },
+  { name: 'Adapters', color: '#f28e2b' },
+  { name: 'Drivers', color: '#9c755f' },
+];
+const EDGE_KINDS = [
+  { kind: 'requirement', name: 'Requirements', color: '#edc948' },
+  { kind: 'scenario', name: 'Scenarios', color: '#ff9da7' },
+  { kind: 'decision', name: 'Decisions', color: '#b07aa1' },
+];
+const EDGE_COLOR = Object.fromEntries(EDGE_KINDS.map(k => [k.kind, k.color]));
+const KIND_ORDER = Object.fromEntries(EDGE_KINDS.map((k, i) => [k.kind, i]));
+const LINK = '#8a8f98', VIOLATION = '#e15759', DIM = '#3a3f48';
+
+const LANE_H = 120;     // height of a layer lane
+const HEADER_H = 190;   // strip above the lanes for the titles of the vertical lanes
+const LEFT = 190;       // strip left of the lanes for the layer names
+const GAP = 140;        // minimum horizontal distance between two pages in one lane
+const COL_GAP = 70;     // minimum horizontal distance between two vertical lanes
+const PULL = 0.4;       // pull of a linked page on the position of a page
+const BAND_W = 26;      // width of a vertical lane
+const R = 7;            // radius of a page
+const TOP = LAYERS.length - 1;
+const laneTop = layer => HEADER_H + (TOP - layer) * LANE_H;
+const nodeY = layer => laneTop(layer) + 42;
+
+const NS = 'http://www.w3.org/2000/svg';
+function el(tag, attrs = {}, parent = null) {
+  const e = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const mean = xs => xs.reduce((a, b) => a + b, 0) / xs.length;
+
+// ---- Model --------------------------------------------------------------------------
+
+const byId = new Map(DATA.nodes.map(n => [n.id, n]));
+for (const n of DATA.nodes) { n.edges = []; n.y = nodeY(n.layer); }
+DATA.edges.sort((a, b) => KIND_ORDER[a.kind] - KIND_ORDER[b.kind] || a.id.localeCompare(b.id));
+for (const e of DATA.edges) {
+  e.checked = true;
+  e.members = e.memberIds.map(id => byId.get(id)).filter(Boolean);
+  for (const m of e.members) m.edges.push(e);
+}
+const neighbours = new Map(DATA.nodes.map(n => [n, new Set()]));
+for (const l of DATA.links) {
+  l.s = byId.get(l.source);
+  l.t = byId.get(l.target);
+  l.pair = `${l.s.layer}>${l.t.layer}`;
+  // The edges of a link: the edges that have both pages of the link as members.
+  l.edges = DATA.edges.filter(e => e.members.includes(l.s) && e.members.includes(l.t));
+  neighbours.get(l.s).add(l.t);
+  neighbours.get(l.t).add(l.s);
+}
+
+// ---- Layout ---------------------------------------------------------------------------
+// A page goes to the mean position of its vertical lanes and its linked pages. A vertical
+// lane goes to the mean position of its pages. Some rounds of this put coupled pages near
+// each other.
+// The layout is calculated one time. Nothing moves after it.
+
+function spread(items, gap) {
+  if (!items.length) return;
+  const wanted = mean(items.map(i => i.x));
+  items.sort((a, b) => a.x - b.x || (a.id < b.id ? -1 : 1));
+  for (let i = 1; i < items.length; i++) items[i].x = Math.max(items[i].x, items[i - 1].x + gap);
+  const shift = wanted - mean(items.map(i => i.x));
+  for (const i of items) i.x += shift;
+}
+
+function layout() {
+  DATA.edges.forEach((e, i) => { e.x = i * GAP; });
+  for (let round = 0; round < 40; round++) {
+    // Each vertical lane of a page pulls with weight 1. Each linked page pulls with weight
+    // PULL, so a page without an edge also goes near the pages that it links to.
+    const before = new Map(DATA.nodes.map(n => [n, n.x ?? null]));
+    for (const n of DATA.nodes) {
+      let sum = 0, weight = 0;
+      for (const e of n.edges) { sum += e.x; weight += 1; }
+      for (const m of neighbours.get(n)) {
+        if (before.get(m) !== null) { sum += before.get(m) * PULL; weight += PULL; }
+      }
+      n.x = weight ? sum / weight : null;
+    }
+    let end = Math.max(0, ...DATA.nodes.filter(n => n.x !== null).map(n => n.x));
+    for (const n of DATA.nodes) if (n.x === null) n.x = (end += GAP);
+    LAYERS.forEach((_, layer) => spread(DATA.nodes.filter(n => n.layer === layer), GAP));
+    for (const e of DATA.edges) if (e.members.length) e.x = mean(e.members.map(m => m.x));
+    spread(DATA.edges.slice(), COL_GAP);
+  }
+  const min = Math.min(...DATA.nodes.map(n => n.x), ...DATA.edges.map(e => e.x));
+  for (const item of [...DATA.nodes, ...DATA.edges]) item.x += LEFT + 90 - min;
+  for (const e of DATA.edges) {
+    const layers = e.members.map(m => m.layer);
+    e.low = layers.length ? Math.min(...layers) : 0;
+    e.high = layers.length ? Math.max(...layers) : 0;
+  }
+}
+layout();
+
+const WIDTH = Math.max(...DATA.nodes.map(n => n.x), ...DATA.edges.map(e => e.x), LEFT + 200) + 120;
+const HEIGHT = HEADER_H + LAYERS.length * LANE_H;
+
+// ---- Drawing --------------------------------------------------------------------------
+
+const svg = document.getElementById('view');
+const defs = el('defs', {}, svg);
+const markers = new Map();
+function marker(color) {
+  if (!markers.has(color)) {
+    const id = `arrow-${markers.size}`;
+    const m = el('marker', { id, viewBox: '0 0 10 10', markerWidth: 8, markerHeight: 8, markerUnits: 'userSpaceOnUse',
+      refX: 10 + R * 10 / 8, refY: 5, orient: 'auto' }, defs);
+    el('path', { d: 'M0,0 L10,5 L0,10 z', fill: color }, m);
+    markers.set(color, `url(#${id})`);
+  }
+  return markers.get(color);
+}
+
+const gLanes = el('g', {}, svg);
+const gBands = el('g', {}, svg);
+const gTicks = el('g', {}, svg);
+const gLinks = el('g', {}, svg);
+const gNodes = el('g', {}, svg);
+
+function wrap(text, width = 18, lines = 2) {
+  const out = [''];
+  for (const word of text.split(/\s+/)) {
+    const line = out[out.length - 1];
+    if (!line || (line + ' ' + word).length <= width) out[out.length - 1] = line ? `${line} ${word}` : word;
+    else out.push(word);
+  }
+  if (out.length > lines) { out.length = lines; out[lines - 1] = out[lines - 1].slice(0, width - 1) + '…'; }
+  return out.map(l => (l.length > width ? l.slice(0, width - 1) + '…' : l));
+}
+
+// Horizontal lanes: one for each layer.
+const lanes = LAYERS.map((layer, i) => {
+  const y = laneTop(i);
+  const g = el('g', {}, gLanes);
+  el('rect', { x: 0, y, width: WIDTH, height: LANE_H, fill: layer.color, 'fill-opacity': i === 2 ? 0.11 : 0.06 }, g);
+  el('line', { x1: 0, x2: WIDTH, y1: y, y2: y, stroke: layer.color, 'stroke-opacity': i === 2 ? 0.7 : 0.3 }, g);
+  const name = el('text', { x: 46, y: y + LANE_H / 2 - 4, fill: layer.color, 'font-size': 15, 'font-weight': 600 }, g);
+  name.textContent = `${i} · ${layer.name}`;
+  const count = el('text', { x: 46, y: y + LANE_H / 2 + 14, fill: '#9aa0a6', 'font-size': 11 }, g);
+  count.textContent = `${DATA.nodes.filter(n => n.layer === i).length} pages`;
+  return g;
+});
+el('line', { x1: 0, x2: WIDTH, y1: HEIGHT, y2: HEIGHT, stroke: '#2a2f3a' }, gLanes);
+
+// The two spaces, as brackets at the left side.
+function space(label, x, from, to, color) {
+  const y1 = laneTop(to) + 6, y2 = laneTop(from) + LANE_H - 6;
+  el('line', { x1: x, x2: x, y1, y2, stroke: color, 'stroke-width': 3, 'stroke-linecap': 'round', 'stroke-opacity': 0.7 }, gLanes);
+  const t = el('text', { transform: `translate(${x - 6}, ${(y1 + y2) / 2}) rotate(-90)`, 'text-anchor': 'middle',
+    fill: color, 'font-size': 11, 'letter-spacing': '.08em' }, gLanes);
+  t.textContent = label.toUpperCase();
+}
+space('Problem space', 18, 0, 2, '#9aa0a6');
+space('Solution space', 34, 2, 4, '#c8ccd2');
+
+// Vertical lanes: one for each edge, across the layers of its members.
+for (const e of DATA.edges) {
+  const color = EDGE_COLOR[e.kind];
+  e.g = el('g', { class: 'clickable' }, gBands);
+  if (e.members.length) {
+    const y1 = laneTop(e.high) + 8, y2 = laneTop(e.low) + LANE_H - 8;
+    e.band = el('rect', { x: e.x - BAND_W / 2, y: y1, width: BAND_W, height: y2 - y1, rx: 8,
+      fill: color, 'fill-opacity': 0.16, stroke: color, 'stroke-opacity': 0.6 }, e.g);
+    el('line', { x1: e.x, x2: e.x, y1: HEADER_H - 6, y2: y1, stroke: color, 'stroke-opacity': 0.35,
+      'stroke-dasharray': '3 4' }, e.g);
+  }
+  const head = el('text', { transform: `translate(${e.x}, ${HEADER_H - 12}) rotate(-50)`, fill: color,
+    'font-size': 12, 'font-weight': 600 }, e.g);
+  head.textContent = e.title.length > 30 ? e.title.slice(0, 29) + '…' : e.title;
+  el('title', {}, e.g).textContent = `${e.title}\n${e.kind} · ${e.members.length} pages`;
+  e.g.addEventListener('click', ev => { ev.stopPropagation(); if (!dragged) selectEdge(e); });
+  // Ticks join each member page to the vertical lane. They show only on selection.
+  e.ticks = e.members.map(m => {
+    const tick = el('line', { x1: m.x, x2: e.x, y1: m.y, y2: m.y, stroke: color, 'stroke-width': 1.5,
+      'stroke-opacity': 0.7 }, gTicks);
+    tick.member = m;
+    return tick;
+  });
+}
+
+// Structural links.
+function linkPath(a, b) {
+  if (a.layer === b.layer) {
+    const h = Math.min(48, 16 + Math.abs(b.x - a.x) / 5);
+    return `M${a.x},${a.y} Q${(a.x + b.x) / 2},${a.y - h} ${b.x},${b.y}`;
+  }
+  const my = (a.y + b.y) / 2;
+  return `M${a.x},${a.y} C${a.x},${my} ${b.x},${my} ${b.x},${b.y}`;
+}
+for (const l of DATA.links) {
+  l.path = el('path', { d: linkPath(l.s, l.t), fill: 'none' }, gLinks);
+}
+
+// Pages.
+for (const n of DATA.nodes) {
+  n.g = el('g', { class: 'clickable', transform: `translate(${n.x}, ${n.y})` }, gNodes);
+  n.halo = el('circle', { r: R + 6, fill: 'none', 'stroke-width': 3, visibility: 'hidden' }, n.g);
+  el('circle', { r: R, fill: LAYERS[n.layer].color, stroke: '#0f1115', 'stroke-width': 2 }, n.g);
+  wrap(n.title).forEach((line, i) => {
+    const t = el('text', { y: R + 15 + i * 14, 'text-anchor': 'middle', fill: '#e6e6e6', 'font-size': 12 }, n.g);
+    t.textContent = line;
+  });
+  el('title', {}, n.g).textContent = `${n.title}\n${n.kind} · ${n.module || 'no module'} · ${n.status || 'no status'}`;
+  n.g.addEventListener('click', ev => { ev.stopPropagation(); if (!dragged) selectNode(n); });
+}
+
+// ---- State and rendering --------------------------------------------------------------
+
+const hiddenLayers = new Set();
+const hiddenPairs = new Set();
+let selectedEdge = null, selectedNode = null;
+
+function highlight() {
+  if (selectedEdge) return { ids: new Set(selectedEdge.memberIds), color: EDGE_COLOR[selectedEdge.kind] };
+  if (selectedNode) return { ids: new Set([selectedNode.id, ...[...neighbours.get(selectedNode)].map(m => m.id)]), color: null };
+  return null;
+}
+
+// A link takes the colour of its first checked edge. A layer rule violation stays red.
+const checkedEdge = l => l.edges.find(e => e.checked);
+function baseColor(l) {
+  if (l.violation) return VIOLATION;
+  const edge = checkedEdge(l);
+  return edge ? EDGE_COLOR[edge.kind] : LINK;
+}
+
+function render() {
+  const h = highlight();
+  const on = n => !h || h.ids.has(n.id);
+  lanes.forEach((g, i) => g.setAttribute('opacity', hiddenLayers.has(i) ? 0.35 : 1));
+  for (const n of DATA.nodes) {
+    n.g.style.display = hiddenLayers.has(n.layer) ? 'none' : '';
+    n.g.setAttribute('opacity', on(n) ? 1 : 0.18);
+    const halo = Boolean(h && h.color && h.ids.has(n.id));
+    n.halo.setAttribute('visibility', halo ? 'visible' : 'hidden');
+    if (halo) n.halo.setAttribute('stroke', h.color);
+  }
+  for (const e of DATA.edges) {
+    // The check box shows or hides the vertical lane. A selected edge always shows.
+    const shown = e.checked || e === selectedEdge;
+    const faded = (selectedEdge && e !== selectedEdge) || (selectedNode && !e.members.includes(selectedNode));
+    e.g.style.display = shown ? '' : 'none';
+    e.g.setAttribute('opacity', faded ? 0.25 : 1);
+    if (e.band) e.band.setAttribute('fill-opacity', e === selectedEdge ? 0.32 : 0.16);
+    // A tick shows only for the selected edge, or for the selected page and its edges.
+    for (const tick of e.ticks) {
+      const wanted = e === selectedEdge || (shown && tick.member === selectedNode);
+      tick.style.display = wanted && !hiddenLayers.has(tick.member.layer) ? '' : 'none';
+    }
+  }
+  for (const l of DATA.links) {
+    const inside = Boolean(h && h.ids.has(l.s.id) && h.ids.has(l.t.id));
+    // A hidden layer hides its links. Otherwise the links of a checked or selected edge
+    // stay visible when their link toggle is off.
+    const visible = !hiddenLayers.has(l.s.layer) && !hiddenLayers.has(l.t.layer)
+      && (!hiddenPairs.has(l.pair) || Boolean(checkedEdge(l)) || (selectedEdge !== null && inside));
+    const color = !h ? baseColor(l) : inside ? (h.color || baseColor(l)) : DIM;
+    l.path.style.display = visible ? '' : 'none';
+    l.path.setAttribute('stroke', color);
+    l.path.setAttribute('stroke-width', inside && h.color ? 2.4 : checkedEdge(l) || l.violation ? 1.6 : 1.2);
+    l.path.setAttribute('stroke-opacity', h && !inside ? 0.5 : 0.85);
+    l.path.setAttribute('marker-end', marker(color));
+  }
+  document.querySelectorAll('.edge').forEach(row =>
+    row.classList.toggle('selected', selectedEdge !== null && row.dataset.id === selectedEdge.id));
+}
+
+// ---- Navigation -----------------------------------------------------------------------
+
+let view = { x: 0, y: 0, w: WIDTH, h: HEIGHT };
+let animation = null;
+function setView(v) { view = v; svg.setAttribute('viewBox', `${v.x} ${v.y} ${v.w} ${v.h}`); }
+
+// Fit a box between the two panels.
+function fit(box, ms = 350) {
+  const cw = svg.clientWidth, ch = svg.clientHeight;
+  const left = document.getElementById('legend').getBoundingClientRect().right + 16;
+  const right = cw - document.getElementById('edges').getBoundingClientRect().left + 16;
+  const free = cw - left - right > 300 ? { l: left, r: right } : { l: 16, r: 16 };
+  const scale = Math.min((cw - free.l - free.r) / box.w, (ch - 80) / box.h, 2.5);
+  const w = cw / scale, h = ch / scale;
+  const target = {
+    x: box.x - free.l / scale - ((cw - free.l - free.r) / scale - box.w) / 2,
+    y: box.y - (h - box.h) / 2 + 10 / scale,
+    w, h,
+  };
+  if (animation) cancelAnimationFrame(animation);
+  if (!ms) { setView(target); return; }
+  const from = { ...view }, start = performance.now();
+  const step = now => {
+    const t = Math.min(1, (now - start) / ms), k = 1 - Math.pow(1 - t, 3);
+    setView({ x: from.x + (target.x - from.x) * k, y: from.y + (target.y - from.y) * k,
+              w: from.w + (target.w - from.w) * k, h: from.h + (target.h - from.h) * k });
+    if (t < 1) animation = requestAnimationFrame(step);
+  };
+  animation = requestAnimationFrame(step);
+}
+const home = (ms = 350) => fit({ x: 0, y: 0, w: WIDTH, h: HEIGHT }, ms);
+
+function fitEdge(e) {
+  if (!e.members.length) return;
+  const xs = [e.x, ...e.members.map(m => m.x)];
+  const x1 = Math.min(...xs) - GAP / 2, x2 = Math.max(...xs) + GAP / 2;
+  fit({ x: x1, y: laneTop(e.high), w: x2 - x1, h: laneTop(e.low) + LANE_H - laneTop(e.high) });
+}
+
+svg.addEventListener('wheel', ev => {
+  ev.preventDefault();
+  const factor = Math.exp(ev.deltaY * 0.0015);
+  const w = Math.min(Math.max(view.w * factor, 150), WIDTH * 6);
+  const k = w / view.w;
+  const rect = svg.getBoundingClientRect();
+  const px = view.x + (ev.clientX - rect.left) / rect.width * view.w;
+  const py = view.y + (ev.clientY - rect.top) / rect.height * view.h;
+  setView({ x: px - (px - view.x) * k, y: py - (py - view.y) * k, w, h: view.h * k });
+}, { passive: false });
+
+// Drag to move. A drag does not count as a click.
+let drag = null, dragged = false;
+svg.addEventListener('pointerdown', ev => {
+  if (ev.button !== 0) return;
+  drag = { x: ev.clientX, y: ev.clientY, view: { ...view } };
+  dragged = false;
+});
+window.addEventListener('pointermove', ev => {
+  if (!drag) return;
+  const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+  if (!dragged && Math.hypot(dx, dy) < 4) return;
+  dragged = true;
+  svg.classList.add('panning');
+  const k = view.w / svg.getBoundingClientRect().width;
+  setView({ ...drag.view, x: drag.view.x - dx * k, y: drag.view.y - dy * k });
+});
+window.addEventListener('pointerup', () => { drag = null; svg.classList.remove('panning'); });
+svg.addEventListener('click', () => { if (!dragged) { selectedEdge = null; selectedNode = null; render(); } });
+
+function selectEdge(e) {
+  selectedNode = null;
+  selectedEdge = selectedEdge === e ? null : e;
+  render();
+  if (selectedEdge) fitEdge(e);
+}
+function selectNode(n) {
+  selectedEdge = null;
+  selectedNode = selectedNode === n ? null : n;
+  render();
+}
+
+document.getElementById('home').addEventListener('click', () => home());
+document.addEventListener('keydown', ev => {
+  if (ev.target instanceof HTMLInputElement) return;
+  if (ev.key === 'h' || ev.key === 'H') home();
+  if (ev.key === 'Escape') { selectedEdge = null; selectedNode = null; render(); }
+});
+window.addEventListener('resize', () => home(0));
+
+// ---- Panels ---------------------------------------------------------------------------
+
+const sw = (color, cls = '') => `<span class="sw ${cls}" style="background:${color}"></span>`;
+const pairs = [...new Set(DATA.links.map(l => l.pair))].sort();
+const pairCount = p => DATA.links.filter(l => l.pair === p).length;
+const pairName = p => { const [s, t] = p.split('>').map(Number); return `${LAYERS[s].name} → ${LAYERS[t].name}`; };
+const outward = p => { const [s, t] = p.split('>').map(Number); return t > s; };
+
+// Left panel: one toggle for each layer (its pages and their links) and one toggle for
+// each kind of link (source layer to target layer).
+document.getElementById('legend').innerHTML = `
+  <h1>Wiki layers</h1>
+  <div>${DATA.nodes.length} pages · ${DATA.edges.length} edges · ${DATA.links.length} links</div>
+  ${DATA.problems.length ? `<div class="problems">${DATA.problems.length} problems (see the console)</div>` : ''}
+  <h2><input type="checkbox" id="all-layers" checked> Layers</h2>
+  ${LAYERS.map((r, i) => `<label class="row"><input type="checkbox" class="layer" data-layer="${i}" checked>
+    ${sw(r.color)}${i} · ${r.name}<span class="count">${DATA.nodes.filter(n => n.layer === i).length}</span></label>`).reverse().join('')}
+  <h2><input type="checkbox" id="all-links" checked> Links</h2>
+  ${pairs.map(p => `<label class="row"><input type="checkbox" class="pair" data-pair="${p}" checked>
+    ${sw(outward(p) ? VIOLATION : LINK, 'line')}${pairName(p)}<span class="count">${pairCount(p)}</span></label>`).join('')}
+  <div class="hint">Click a page to show its neighbours. Click the background to clear.</div>`;
+
+function syncToggles(allId, cls, key, hidden, total) {
+  const all = document.getElementById(allId);
+  all.checked = hidden.size === 0;
+  all.indeterminate = hidden.size > 0 && hidden.size < total;
+  document.querySelectorAll(`.${cls}`).forEach(box => { box.checked = !hidden.has(key(box)); });
+}
+function bindToggles(allId, cls, key, hidden, values) {
+  const sync = () => syncToggles(allId, cls, key, hidden, values.length);
+  document.querySelectorAll(`.${cls}`).forEach(box => box.addEventListener('change', () => {
+    box.checked ? hidden.delete(key(box)) : hidden.add(key(box));
+    sync(); render();
+  }));
+  document.getElementById(allId).addEventListener('change', ev => {
+    hidden.clear();
+    if (!ev.target.checked) values.forEach(v => hidden.add(v));
+    sync(); render();
+  });
+}
+bindToggles('all-layers', 'layer', box => Number(box.dataset.layer), hiddenLayers, LAYERS.map((_, i) => i));
+bindToggles('all-links', 'pair', box => box.dataset.pair, hiddenPairs, pairs);
+
+// Right panel: the edges. The check box shows or hides the vertical lane of an edge and
+// the colour of its links. A click on the title selects the edge.
+document.getElementById('edges').innerHTML = EDGE_KINDS.map(k => {
+  const list = DATA.edges.filter(e => e.kind === k.kind);
+  if (!list.length) return '';
+  return `<h2><input type="checkbox" class="kind" data-kind="${k.kind}" checked>${k.name}
+      <span class="count">${list.length}</span></h2>
+    ${list.map(e => `<div class="row edge" data-id="${esc(e.id)}">
+      <input type="checkbox" class="shown" checked title="Vertical lane on or off">
+      ${sw(k.color, 'lane')}<button title="${esc(e.title)}">${esc(e.title)}</button></div>`).join('')}`;
+}).join('') + '<div class="hint">The check box shows or hides the vertical lane of an edge. Click a title to select it.</div>';
+
+const edgeById = new Map(DATA.edges.map(e => [e.id, e]));
+function syncKinds() {
+  document.querySelectorAll('.kind').forEach(box => {
+    const list = DATA.edges.filter(e => e.kind === box.dataset.kind);
+    const count = list.filter(e => e.checked).length;
+    box.checked = count === list.length;
+    box.indeterminate = count > 0 && count < list.length;
+  });
+  document.querySelectorAll('.edge').forEach(row => {
+    const e = edgeById.get(row.dataset.id);
+    row.querySelector('.shown').checked = e.checked;
+    row.classList.toggle('off', !e.checked);
+  });
+}
+document.querySelectorAll('.edge').forEach(row => {
+  const e = edgeById.get(row.dataset.id);
+  row.querySelector('.shown').addEventListener('change', ev => { e.checked = ev.target.checked; syncKinds(); render(); });
+  row.querySelector('button').addEventListener('click', () => selectEdge(e));
+});
+document.querySelectorAll('.kind').forEach(box => box.addEventListener('change', () => {
+  DATA.edges.filter(e => e.kind === box.dataset.kind).forEach(e => { e.checked = box.checked; });
+  syncKinds(); render();
+}));
+
+render();
+home(0);
+DATA.problems.forEach(p => console.warn(p));
+</script>
+</body>
+</html>
