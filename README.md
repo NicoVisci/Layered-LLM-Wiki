@@ -1,7 +1,10 @@
 # Layered-LLM-Wiki
 
 A documentation method for software projects. The documentation is a wiki of linked
-Markdown pages. An LLM agent does the maintenance. A script examines the links.
+Markdown pages based on [LLM Wiki](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f), 
+a documentation pattern from [Andrej Karpathy](https://karpathy.ai/). 
+As in Karpathy's vision, an LLM agent handles maintenance. 
+With my extension, a script checks the links between the layers.
 
 - Each node page is in one layer, from the domain (layer 0) to the drivers (layer 4).
 - Requirements, scenarios and decisions (ADRs) are edge pages. Each edge page connects
